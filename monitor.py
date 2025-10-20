@@ -126,6 +126,20 @@ async def monitor_loop():
     config = load_config()
     state = load_state()
     log("START", f"{len(config)} kohdetta, väli {POLL_SECONDS}s, headless={HEADLESS}.")
+
+    # Send startup notification
+    startup_msg = (
+        f"🚀 Website Monitor Started\n"
+        f"Monitoring {len(config)} URLs\n"
+        f"Poll interval: {POLL_SECONDS}s\n"
+        f"Started at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    )
+    await slack_post(startup_msg)
+
+    # Track last ping time
+    last_ping_time = datetime.now(UTC)
+    ping_interval_hours = 12
+
     async with async_playwright() as pw:
         while True:
             for item in config:
@@ -197,6 +211,21 @@ async def monitor_loop():
 
                 except (asyncio.TimeoutError, OSError, aiohttp.ClientError) as e:
                     log("ERROR", f"{url}: {e}")
+
+            # Check if it's time to send a ping message
+            current_time = datetime.now(UTC)
+            hours_since_last_ping = (current_time - last_ping_time).total_seconds() / 3600
+
+            if hours_since_last_ping >= ping_interval_hours:
+                ping_msg = (
+                    f"✅ Monitor Status: Running\n"
+                    f"Monitoring {len(config)} URLs\n"
+                    f"Last check: {current_time.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+                    f"Uptime: {hours_since_last_ping:.1f} hours"
+                )
+                await slack_post(ping_msg)
+                log("PING", "Sent periodic status update to Slack")
+                last_ping_time = current_time
 
             await asyncio.sleep(POLL_SECONDS)
 
