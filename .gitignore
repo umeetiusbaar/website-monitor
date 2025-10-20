@@ -15,8 +15,9 @@ tm_state.json
 *.png
 *.jpg
 
-# Environment variables
+# Environment variables and local config
 .env
+config/urls.yaml.local
 
 # IDE
 .idea/

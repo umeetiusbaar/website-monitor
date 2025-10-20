@@ -1,0 +1,24 @@
+urls:
+  # Example: Monitor when a product comes back in stock
+  - url: "https://example.com/product/123"
+    search_text: "Out of stock"
+    mode: "disappears"
+    note: "Product XYZ availability"
+
+  # Example: Monitor when tickets become available
+  - url: "https://tickets.example.com/event/456"
+    search_text: "Sold out"
+    mode: "disappears"
+    note: "Concert tickets"
+
+  # Example: Monitor when a specific text appears on a page
+  - url: "https://news.example.com"
+    search_text: "Breaking news"
+    mode: "appears"
+    note: "News alert"
+
+  # Example: Monitor website status
+  - url: "https://status.example.com"
+    search_text: "All systems operational"
+    mode: "disappears"
+    note: "Service status monitoring"

@@ -63,7 +63,12 @@ playwright install chromium
 
 ### Configuration Files
 
-**config/urls.yaml** - Expected format:
+**config/urls.yaml.local** - Your personal URL configuration (not committed to git):
+- Copy from `config/urls.yaml.example` to get started
+- The application automatically uses `urls.yaml.local` if it exists
+- Falls back to `urls.yaml` if `.local` version doesn't exist
+
+Expected format:
 ```yaml
 urls:
   - url: "https://example.com"
@@ -75,7 +80,7 @@ urls:
 ### Environment Variables
 
 - `STATE_FILE`: Path to state persistence file (default: `tm_state.json`)
-- `CONFIG_FILE`: Path to URL configuration (default: `config/urls.yaml`)
+- `CONFIG_FILE`: Path to URL configuration (default: auto-detects `config/urls.yaml.local` or `config/urls.yaml`)
 - `SLACK_WEBHOOK`: Slack webhook URL for notifications
 - `POLL_SECONDS`: Polling interval in seconds (default: `60`)
 - `HEADLESS`: Run browser in headless mode (default: `true`)

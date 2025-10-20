@@ -15,7 +15,13 @@ A containerized Python application that monitors websites for content changes an
 
 1. **Configure URLs to monitor:**
 
-   Edit `config/urls.yaml`:
+   Copy the example config and edit it:
+   ```bash
+   cp config/urls.yaml.example config/urls.yaml.local
+   # Edit config/urls.yaml.local with your URLs
+   ```
+
+   Example configuration:
    ```yaml
    urls:
      - url: "https://example.com"

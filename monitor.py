@@ -11,7 +11,9 @@ import aiohttp
 
 # Ympäristömuuttujat
 STATE_FILE = os.getenv("STATE_FILE", "tm_state.json")
-CONFIG_FILE = os.getenv("CONFIG_FILE", "config/urls.yaml")
+# Prefer urls.yaml.local if it exists, otherwise fall back to urls.yaml
+DEFAULT_CONFIG = "config/urls.yaml.local" if os.path.exists("config/urls.yaml.local") else "config/urls.yaml"
+CONFIG_FILE = os.getenv("CONFIG_FILE", DEFAULT_CONFIG)
 SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
