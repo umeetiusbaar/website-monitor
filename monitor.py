@@ -56,11 +56,16 @@ async def slack_post(text: str):
     if not SLACK_WEBHOOK:
         log("INFO", f"SLACK_WEBHOOK not set; printing instead:\n{text}")
         return
-    async with aiohttp.ClientSession() as session:
-        async with session.post(SLACK_WEBHOOK, json={"text": text}, timeout=20) as r:
-            if r.status >= 300:
-                body = await r.text()
-                log("WARN", f"Slack HTTP {r.status}: {body}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(SLACK_WEBHOOK, json={"text": text}, timeout=20) as r:
+                if r.status >= 300:
+                    body = await r.text()
+                    log("WARN", f"Slack HTTP {r.status}: {body}")
+                else:
+                    log("INFO", f"Slack message sent successfully (HTTP {r.status})")
+    except Exception as e:
+        log("ERROR", f"Failed to send Slack message: {e}")
 
 async def click_cookie_banners(page):
     # Yritetään useita kertoja: osa sivuista lataa bannerin viiveellä
@@ -127,10 +132,15 @@ async def monitor_loop():
     state = load_state()
     log("START", f"{len(config)} kohdetta, väli {POLL_SECONDS}s, headless={HEADLESS}.")
 
+    # Log all URLs being monitored
+    for idx, item in enumerate(config, 1):
+        log("START", f"  {idx}. {item.get('note', 'No note')} - {item['url'][:80]}...")
+
     # Send startup notification
+    url_list = "\n".join([f"{i}. {item.get('note', item['url'][:50])}" for i, item in enumerate(config, 1)])
     startup_msg = (
-        f"🚀 Website Monitor Started\n"
-        f"Monitoring {len(config)} URLs\n"
+        f"🚀 Website Monitor Started\n\n"
+        f"Monitoring {len(config)} URLs:\n{url_list}\n\n"
         f"Poll interval: {POLL_SECONDS}s\n"
         f"Started at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC"
     )
@@ -191,16 +201,16 @@ async def monitor_loop():
                         # Viesti
                         if alert:
                             if mode == "disappears" and prev_contains and not curr_contains:
-                                status = f"**'{search_text}' EI enää näy** → mahdollisesti lippuja!"
+                                status = f"🎉 **'{search_text}' EI enää näy** → mahdollisesti lippuja!"
                             elif mode == "appears" and (not prev_contains) and curr_contains:
-                                status = f"**'{search_text}' ilmestyi sivulle.**"
+                                status = f"⚠️ **'{search_text}' ilmestyi sivulle.**"
                             else:
-                                status = f"Muutos havaittu (mode={mode})."
+                                status = f"🔔 Muutos havaittu (mode={mode})."
 
                             msg = (
-                                f"🎟️ {url}\n"
-                                f"{status}\n"
-                                f"{'(' + note + ')' if note else ''}"
+                                f"{status}\n\n"
+                                f"🎟️ {note}\n"
+                                f"🔗 {url}"
                             )
                             log("ALERT", msg.replace("\n", " "))
                             await slack_post(msg)
@@ -217,9 +227,10 @@ async def monitor_loop():
             hours_since_last_ping = (current_time - last_ping_time).total_seconds() / 3600
 
             if hours_since_last_ping >= ping_interval_hours:
+                url_list = "\n".join([f"{i}. {item.get('note', item['url'][:50])}" for i, item in enumerate(config, 1)])
                 ping_msg = (
-                    f"✅ Monitor Status: Running\n"
-                    f"Monitoring {len(config)} URLs\n"
+                    f"✅ Monitor Status: Running\n\n"
+                    f"Monitoring {len(config)} URLs:\n{url_list}\n\n"
                     f"Last check: {current_time.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
                     f"Uptime: {hours_since_last_ping:.1f} hours"
                 )
