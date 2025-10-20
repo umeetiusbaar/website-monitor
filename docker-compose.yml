@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  website-monitor:
+    build: .
+    container_name: website-monitor
+    restart: unless-stopped
+    volumes:
+      # Mount config directory (read-only)
+      - ./config:/app/config:ro
+      # Mount data directory for state and screenshots (persistent)
+      - ./data:/data
+    environment:
+      # Configuration
+      - STATE_FILE=/data/tm_state.json
+      - CONFIG_FILE=/app/config/urls.yaml
+      - POLL_SECONDS=60
+      - HEADLESS=true
+      # Slack webhook URL (set this in .env file or override here)
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+    # Optional: uncomment to limit resources
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1.0'
+    #       memory: 1G
