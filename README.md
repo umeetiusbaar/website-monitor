@@ -17,8 +17,8 @@ A containerized Python application that monitors websites for content changes an
 
    Copy the example config and edit it:
    ```bash
-   cp config/urls.yaml.example config/urls.yaml.local
-   # Edit config/urls.yaml.local with your URLs
+   cp config/urls.yaml.example config/urls.yaml
+   # Edit config/urls.yaml with your URLs
    ```
 
    Example configuration:

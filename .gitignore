@@ -17,7 +17,7 @@ tm_state.json
 
 # Environment variables and local config
 .env
-config/urls.yaml.local
+config/urls.yaml
 
 # IDE
 .idea/
