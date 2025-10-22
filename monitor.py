@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 
 import yaml
 from playwright.async_api import async_playwright, ViewportSize
+from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 import aiohttp
 
 # Ympäristömuuttujat
@@ -195,7 +196,7 @@ async def monitor_loop():
                                 await context.close()
                                 await browser.close()
                                 log("INFO", f"Screenshot saved to {screenshot_path}")
-                            except (OSError, asyncio.TimeoutError) as se:
+                            except (OSError, asyncio.TimeoutError, PlaywrightTimeoutError, PlaywrightError) as se:
                                 log("WARN", f"Screenshot failed: {se}")
 
                         # Viesti
@@ -219,7 +220,7 @@ async def monitor_loop():
                         state[url] = res
                         save_state(state)
 
-                except (asyncio.TimeoutError, OSError, aiohttp.ClientError) as e:
+                except (asyncio.TimeoutError, OSError, aiohttp.ClientError, PlaywrightTimeoutError, PlaywrightError) as e:
                     log("ERROR", f"{url}: {e}")
 
             # Check if it's time to send a ping message
