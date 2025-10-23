@@ -163,7 +163,6 @@ async def monitor_loop():
                 mode = item["mode"]
                 note = item.get("note", "")
                 try:
-                    log("CHECK", f"Checking {url}...")
                     res = await check_one(pw, item)
                     if not res:
                         continue
