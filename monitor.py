@@ -117,12 +117,16 @@ async def check_one(pw, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         snapshot = await get_text_snapshot(page)
         contains = item["search_text"] in snapshot
 
+        # Include a text snippet for debugging (first 1000 chars)
+        snippet = snapshot[:1000] if len(snapshot) > 1000 else snapshot
+
         # Ota kuvakaappaus vain muutostilanteessa (tehdään kutsuvassa kohdassa)
         return {
             "url": url,
             "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
             "contains": contains,
             "hash": hsh(snapshot),
+            "snippet": snippet,
         }
     finally:
         await context.close()
@@ -208,10 +212,14 @@ async def monitor_loop():
                             else:
                                 status = f"🔔 Muutos havaittu (mode={mode})."
 
+                            # Include snippet of current page content for debugging
+                            current_snippet = res.get("snippet", "N/A")
+
                             msg = (
                                 f"{status}\n\n"
                                 f"🎟️ {note}\n"
-                                f"🔗 {url}"
+                                f"🔗 {url}\n\n"
+                                f"📄 Current page text (first 1000 chars):\n{current_snippet}"
                             )
                             log("ALERT", msg.replace("\n", " "))
                             await slack_post(msg)
