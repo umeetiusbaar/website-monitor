@@ -46,11 +46,52 @@ def load_config() -> List[Dict[str, Any]]:
         cfg = yaml.safe_load(f)
     items = cfg.get("urls", [])
     assert isinstance(items, list) and items, "config/urls.yaml: 'urls' pitää olla lista, jossa on vähintään yksi kohde."
+
     for it in items:
-        if "url" not in it or "search_text" not in it or "mode" not in it:
-            raise ValueError("Jokaisella rivillä pitää olla: url, search_text, mode (appears|disappears)")
-        if it["mode"] not in ("appears", "disappears"):
-            raise ValueError("mode pitää olla 'appears' tai 'disappears'")
+        if "url" not in it:
+            raise ValueError("Jokaisella rivillä pitää olla: url")
+
+        # Support both old and new format
+        # Old format: search_text + mode
+        # New format: search_text_disappears and/or search_text_appears
+        has_old_format = "search_text" in it and "mode" in it
+        has_new_format = "search_text_disappears" in it or "search_text_appears" in it
+
+        if not has_old_format and not has_new_format:
+            raise ValueError("Käytä joko: (search_text + mode) TAI (search_text_disappears/search_text_appears)")
+
+        if has_old_format:
+            # Convert old format to new format internally
+            if it["mode"] not in ("appears", "disappears"):
+                raise ValueError("mode pitää olla 'appears' tai 'disappears'")
+
+            search_text = it["search_text"]
+            search_list = search_text if isinstance(search_text, list) else [search_text]
+
+            if it["mode"] == "disappears":
+                it["search_text_disappears"] = search_list
+                it["search_text_appears"] = []
+            else:
+                it["search_text_disappears"] = []
+                it["search_text_appears"] = search_list
+        else:
+            # Normalize new format to lists
+            if "search_text_disappears" in it:
+                txt = it["search_text_disappears"]
+                it["search_text_disappears"] = txt if isinstance(txt, list) else [txt]
+            else:
+                it["search_text_disappears"] = []
+
+            if "search_text_appears" in it:
+                txt = it["search_text_appears"]
+                it["search_text_appears"] = txt if isinstance(txt, list) else [txt]
+            else:
+                it["search_text_appears"] = []
+
+        # At least one condition must be specified
+        if not it["search_text_disappears"] and not it["search_text_appears"]:
+            raise ValueError("Vähintään yksi search_text_disappears tai search_text_appears vaaditaan")
+
     return items
 
 async def slack_post(text: str):
@@ -115,7 +156,13 @@ async def check_one(pw, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         await page.wait_for_timeout(2500)
 
         snapshot = await get_text_snapshot(page)
-        contains = item["search_text"] in snapshot
+
+        # Check which texts from each list are present
+        disappears_list = item.get("search_text_disappears", [])
+        appears_list = item.get("search_text_appears", [])
+
+        found_disappears = [txt for txt in disappears_list if txt in snapshot]
+        found_appears = [txt for txt in appears_list if txt in snapshot]
 
         # Include a text snippet for debugging (first 1000 chars)
         snippet = snapshot[:1000] if len(snapshot) > 1000 else snapshot
@@ -124,7 +171,8 @@ async def check_one(pw, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return {
             "url": url,
             "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
-            "contains": contains,
+            "found_disappears": found_disappears,
+            "found_appears": found_appears,
             "hash": hsh(snapshot),
             "snippet": snippet,
         }
@@ -159,31 +207,55 @@ async def monitor_loop():
         while True:
             for item in config:
                 url = item["url"]
-                search_text = item["search_text"]
-                mode = item["mode"]
+                disappears_list = item.get("search_text_disappears", [])
+                appears_list = item.get("search_text_appears", [])
                 note = item.get("note", "")
                 try:
                     res = await check_one(pw, item)
                     if not res:
                         continue
                     prev = state.get(url)
-                    prev_contains = prev["contains"] if prev else None
-                    curr_contains = res["contains"]
+
+                    curr_found_disappears = res["found_disappears"]
+                    curr_found_appears = res["found_appears"]
 
                     # Ensimmäinen kierros: vain init
-                    if prev_contains is None:
-                        log("INIT", f"{url} -> contains '{search_text}': {curr_contains} ({mode})")
+                    if prev is None:
+                        log("INIT", f"{url} -> disappears:{curr_found_disappears}, appears:{curr_found_appears}")
                         state[url] = res
                         save_state(state)
                         continue
 
-                    changed = (prev_contains != curr_contains)
+                    prev_found_disappears = prev.get("found_disappears", [])
+                    prev_found_appears = prev.get("found_appears", [])
+
+                    # Check if conditions have changed
+                    changed = (prev_found_disappears != curr_found_disappears or
+                              prev_found_appears != curr_found_appears)
+
                     if changed:
-                        # Tulkinta: milloin hälytetään
-                        alert = (
-                                (mode == "disappears" and prev_contains is True  and curr_contains is False) or
-                                (mode == "appears"    and prev_contains is False and curr_contains is True)
-                        )
+                        # Alert logic:
+                        # - ALL disappears texts must be gone (were present, now all gone)
+                        # - At least ONE appears text must be present (was not present, now at least one is there)
+                        alert = False
+
+                        # Check disappears condition (if specified)
+                        disappears_satisfied = True
+                        if disappears_list:
+                            # Were any disappears texts present before? Are they all gone now?
+                            disappears_satisfied = (len(prev_found_disappears) > 0 and
+                                                  len(curr_found_disappears) == 0)
+
+                        # Check appears condition (if specified)
+                        appears_satisfied = True
+                        if appears_list:
+                            # Were all appears texts absent before? Is at least one present now?
+                            appears_satisfied = (len(prev_found_appears) == 0 and
+                                               len(curr_found_appears) > 0)
+
+                        # Alert if both conditions are satisfied
+                        # (If only one type is specified, the other is always satisfied)
+                        alert = disappears_satisfied and appears_satisfied
                         # Ota muutostilanteessa myös kuvakaappaus talteen
                         if alert:
                             os.makedirs("/data/screens", exist_ok=True)
@@ -204,12 +276,21 @@ async def monitor_loop():
 
                         # Viesti
                         if alert:
-                            if mode == "disappears" and prev_contains and not curr_contains:
-                                status = f"🎉 **'{search_text}' EI enää näy** → mahdollisesti lippuja!"
-                            elif mode == "appears" and (not prev_contains) and curr_contains:
-                                status = f"⚠️ **'{search_text}' ilmestyi sivulle.**"
+                            # Build status message
+                            status_parts = []
+
+                            if disappears_list and len(curr_found_disappears) == 0:
+                                disappeared_texts = ", ".join(f"'{t}'" for t in disappears_list)
+                                status_parts.append(f"✅ {disappeared_texts} kadonnut")
+
+                            if appears_list and len(curr_found_appears) > 0:
+                                appeared_texts = ", ".join(f"'{t}'" for t in curr_found_appears)
+                                status_parts.append(f"✅ {appeared_texts} ilmestynyt")
+
+                            if status_parts:
+                                status = "🎉 " + " JA ".join(status_parts) + " → mahdollisesti lippuja!"
                             else:
-                                status = f"🔔 Muutos havaittu (mode={mode})."
+                                status = "🔔 Muutos havaittu."
 
                             # Include snippet of current page content for debugging
                             current_snippet = res.get("snippet", "N/A")

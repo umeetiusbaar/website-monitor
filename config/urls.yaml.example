@@ -1,24 +1,37 @@
 urls:
-  # Example: Monitor when a product comes back in stock
+  # OLD FORMAT (still supported): Simple monitoring with single search text
+  # Monitor when a product comes back in stock
   - url: "https://example.com/product/123"
     search_text: "Out of stock"
     mode: "disappears"
     note: "Product XYZ availability"
 
-  # Example: Monitor when tickets become available
-  - url: "https://tickets.example.com/event/456"
-    search_text: "Sold out"
-    mode: "disappears"
-    note: "Concert tickets"
-
-  # Example: Monitor when a specific text appears on a page
+  # OLD FORMAT: Monitor when specific text appears
   - url: "https://news.example.com"
     search_text: "Breaking news"
     mode: "appears"
     note: "News alert"
 
-  # Example: Monitor website status
+  # NEW FORMAT: Monitor multiple texts that should disappear
+  # Alert when ALL texts have disappeared
+  - url: "https://tickets.example.com/event/456"
+    search_text_disappears:
+      - "Sold out"
+      - "No tickets available"
+    note: "Concert tickets - multiple sold out messages"
+
+  # NEW FORMAT: Advanced monitoring with both conditions
+  # Alert when ALL disappear texts are gone AND at least ONE appear text is present
+  - url: "https://tickets.example.com/event/789"
+    search_text_disappears:
+      - "0 No results"
+      - "routine maintenance"
+    search_text_appears:
+      - "Add to cart"
+      - "Select tickets"
+    note: "Tickets with confirmation - no false alarms"
+
+  # NEW FORMAT: Monitor only for appearance
   - url: "https://status.example.com"
-    search_text: "All systems operational"
-    mode: "disappears"
-    note: "Service status monitoring"
+    search_text_appears: "Service disruption"
+    note: "Alert when service disruption message appears"
