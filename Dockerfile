@@ -43,16 +43,23 @@ RUN playwright install chromium
 
 # Copy application files
 COPY monitor.py .
+COPY healthcheck.py .
 COPY config/ ./config/
 
-# Create directory for screenshots
+# Create directory for screenshots and data
 RUN mkdir -p /data/screens
 
 # Set environment variables with defaults
 ENV STATE_FILE=/data/tm_state.json \
     CONFIG_FILE=/app/config/urls.yaml \
     POLL_SECONDS=60 \
-    HEADLESS=true
+    HEADLESS=true \
+    HEARTBEAT_FILE=/data/heartbeat.txt
+
+# Health check: verify the app is responsive by checking heartbeat
+# Check every 60s, start checking after 120s, timeout after 10s, 3 retries before unhealthy
+HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
+    CMD python /app/healthcheck.py || exit 1
 
 # Run the monitor
 CMD ["python", "-u", "monitor.py"]

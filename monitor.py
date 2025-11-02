@@ -16,11 +16,21 @@ CONFIG_FILE = os.getenv("CONFIG_FILE", "config/urls.yaml")
 SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
+HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", "/data/heartbeat.txt")
 
 def log(level: str, msg: str) -> None:
     """Print log message with timestamp."""
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] [{level}] {msg}")
+
+def update_heartbeat() -> None:
+    """Write current timestamp to heartbeat file for health checks."""
+    try:
+        timestamp = datetime.now(UTC).isoformat()
+        with open(HEARTBEAT_FILE, "w") as f:
+            f.write(timestamp)
+    except Exception as e:
+        log("WARN", f"Failed to update heartbeat: {e}")
 
 # Evästepopuppien napeista kokeiltavat tekstit
 COOKIE_BUTTON_CANDIDATES = [
@@ -326,6 +336,9 @@ async def monitor_loop():
                 await slack_post(ping_msg)
                 log("PING", "Sent periodic status update to Slack")
                 last_ping_time = current_time
+
+            # Update heartbeat for health checks
+            update_heartbeat()
 
             await asyncio.sleep(POLL_SECONDS)
 

@@ -16,6 +16,7 @@ services:
       - CONFIG_FILE=/app/config/urls.yaml
       - POLL_SECONDS=60
       - HEADLESS=true
+      - HEARTBEAT_FILE=/data/heartbeat.txt
       # Slack webhook URL (set this in .env file or override here)
       - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
     # Optional: uncomment to limit resources

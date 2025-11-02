@@ -83,6 +83,7 @@ urls:
 - `SLACK_WEBHOOK`: Slack webhook URL for notifications
 - `POLL_SECONDS`: Polling interval in seconds (default: `60`)
 - `HEADLESS`: Run browser in headless mode (default: `true`)
+- `HEARTBEAT_FILE`: Path to heartbeat file for health checks (default: `/data/heartbeat.txt`)
 
 ## Running the Monitor
 
@@ -165,7 +166,58 @@ docker stop website-monitor && docker rm website-monitor
 ```bash
 # Pull latest changes and rebuild
 git pull
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+### Health Checks and Automatic Recovery
+
+The container includes a built-in health check mechanism to detect if the monitor becomes stuck:
+
+**How it works:**
+- The monitor writes a heartbeat timestamp to `/data/heartbeat.txt` after each poll cycle
+- Docker runs `healthcheck.py` every 60 seconds to verify the heartbeat is recent
+- If the heartbeat is older than 3x `POLL_SECONDS`, the container is marked as unhealthy
+- After 3 consecutive failed health checks, the container status becomes "unhealthy"
+
+**Check container health:**
+```bash
+docker ps
+# Look for the "STATUS" column - should show "healthy" or "unhealthy"
+
+# View detailed health check logs
+docker inspect website-monitor --format='{{json .State.Health}}' | jq
+```
+
+**Automatic restart on unhealthy status:**
+
+Option 1: Using cron (recommended for servers)
+```bash
+# Make the script executable (already done)
+chmod +x restart_if_unhealthy.sh
+
+# Add to crontab to check every 5 minutes
+crontab -e
+# Add this line:
+*/5 * * * * /path/to/website-monitor/restart_if_unhealthy.sh >> /var/log/monitor-restart.log 2>&1
+```
+
+Option 2: Manual restart when needed
+```bash
+# Check if unhealthy
+docker inspect website-monitor --format='{{.State.Health.Status}}'
+
+# Restart if unhealthy
+docker compose restart website-monitor
+```
+
+Option 3: Using docker-autoheal (optional)
+```bash
+# Run autoheal container that automatically restarts unhealthy containers
+docker run -d \
+  --name autoheal \
+  --restart=always \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  willfarrell/autoheal
 ```
