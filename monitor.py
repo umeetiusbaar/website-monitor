@@ -148,19 +148,44 @@ async def get_text_snapshot(page) -> str:
 def hsh(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-async def check_one(pw, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def check_one(pw, item: Dict[str, Any], retry_count: int = 0) -> Optional[Dict[str, Any]]:
+    """Check a single URL with retry logic for browser crashes."""
     url = item["url"]
-    chromium = pw.chromium
-    browser = await chromium.launch(headless=HEADLESS, args=["--no-sandbox"])
-    viewport: ViewportSize = {"width": 1280, "height": 2200}
-    context = await browser.new_context(
-        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"),
-        viewport=viewport,
-        java_script_enabled=True,
-    )
-    page = await context.new_page()
+    max_retries = 3
+
+    browser = None
+    context = None
+
     try:
+        chromium = pw.chromium
+
+        # Enhanced browser launch args for stability
+        launch_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-accelerated-2d-canvas",
+            "--no-first-run",
+            "--no-zygote",
+            "--disable-gpu",
+            "--single-process",  # More stable in containers
+        ]
+
+        browser = await chromium.launch(
+            headless=HEADLESS,
+            args=launch_args,
+            timeout=60000  # 60s timeout for browser launch
+        )
+
+        viewport: ViewportSize = {"width": 1280, "height": 2200}
+        context = await browser.new_context(
+            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"),
+            viewport=viewport,
+            java_script_enabled=True,
+        )
+        page = await context.new_page()
+
         await page.goto(url, wait_until="networkidle", timeout=45000)
         await click_cookie_banners(page)
         await page.wait_for_timeout(2500)
@@ -186,9 +211,33 @@ async def check_one(pw, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "hash": hsh(snapshot),
             "snippet": snippet,
         }
+    except PlaywrightError as e:
+        # Handle browser crashes and target closed errors
+        error_msg = str(e)
+        if "Target page, context or browser has been closed" in error_msg or "SIGTRAP" in error_msg:
+            if retry_count < max_retries:
+                wait_time = 2 ** retry_count  # Exponential backoff: 1s, 2s, 4s
+                log("WARN", f"{url}: Browser crash detected (retry {retry_count + 1}/{max_retries}), waiting {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                return await check_one(pw, item, retry_count + 1)
+            else:
+                log("ERROR", f"{url}: Browser crashed after {max_retries} retries: {e}")
+                raise
+        else:
+            raise
     finally:
-        await context.close()
-        await browser.close()
+        # Ensure cleanup even if errors occur
+        try:
+            if context:
+                await context.close()
+        except Exception as e:
+            log("WARN", f"Error closing context: {e}")
+
+        try:
+            if browser:
+                await browser.close()
+        except Exception as e:
+            log("WARN", f"Error closing browser: {e}")
 
 async def monitor_loop():
     config = load_config()
@@ -271,18 +320,45 @@ async def monitor_loop():
                             os.makedirs("/data/screens", exist_ok=True)
                             screenshot_path = f"/data/screens/{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}Z.png"
                             # Ota pikakuvakaappaus erillisellä selainsessiolla:
+                            screenshot_browser = None
+                            screenshot_context = None
                             try:
-                                browser = await pw.chromium.launch(headless=True, args=["--no-sandbox"])
+                                # Use same stable browser args
+                                screenshot_args = [
+                                    "--no-sandbox",
+                                    "--disable-setuid-sandbox",
+                                    "--disable-dev-shm-usage",
+                                    "--disable-accelerated-2d-canvas",
+                                    "--no-first-run",
+                                    "--no-zygote",
+                                    "--disable-gpu",
+                                    "--single-process",
+                                ]
+                                screenshot_browser = await pw.chromium.launch(
+                                    headless=True,
+                                    args=screenshot_args,
+                                    timeout=60000
+                                )
                                 screenshot_viewport: ViewportSize = {"width": 1280, "height": 2200}
-                                context = await browser.new_context(viewport=screenshot_viewport)
-                                page = await context.new_page()
+                                screenshot_context = await screenshot_browser.new_context(viewport=screenshot_viewport)
+                                page = await screenshot_context.new_page()
                                 await page.goto(url, wait_until="networkidle", timeout=45000)
                                 await page.screenshot(path=screenshot_path, full_page=True)
-                                await context.close()
-                                await browser.close()
                                 log("INFO", f"Screenshot saved to {screenshot_path}")
                             except (OSError, asyncio.TimeoutError, PlaywrightTimeoutError, PlaywrightError) as se:
                                 log("WARN", f"Screenshot failed: {se}")
+                            finally:
+                                # Ensure cleanup
+                                try:
+                                    if screenshot_context:
+                                        await screenshot_context.close()
+                                except Exception as e:
+                                    log("WARN", f"Error closing screenshot context: {e}")
+                                try:
+                                    if screenshot_browser:
+                                        await screenshot_browser.close()
+                                except Exception as e:
+                                    log("WARN", f"Error closing screenshot browser: {e}")
 
                         # Viesti
                         if alert:
@@ -318,8 +394,19 @@ async def monitor_loop():
                         state[url] = res
                         save_state(state)
 
-                except (asyncio.TimeoutError, OSError, aiohttp.ClientError, PlaywrightTimeoutError, PlaywrightError) as e:
-                    log("ERROR", f"{url}: {e}")
+                except PlaywrightError as e:
+                    error_msg = str(e)
+                    # More detailed logging for browser crashes
+                    if "Target page, context or browser has been closed" in error_msg or "SIGTRAP" in error_msg:
+                        log("ERROR", f"{url}: Browser crash detected (possibly due to website's anti-bot detection or resource constraints)")
+                    else:
+                        log("ERROR", f"{url}: Playwright error: {e}")
+                except (asyncio.TimeoutError, PlaywrightTimeoutError) as e:
+                    log("ERROR", f"{url}: Timeout error: {e}")
+                except (OSError, aiohttp.ClientError) as e:
+                    log("ERROR", f"{url}: Network/OS error: {e}")
+                except Exception as e:
+                    log("ERROR", f"{url}: Unexpected error: {type(e).__name__}: {e}")
 
             # Check if it's time to send a ping message
             current_time = datetime.now(UTC)
